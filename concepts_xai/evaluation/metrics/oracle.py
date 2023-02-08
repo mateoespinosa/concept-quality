@@ -312,7 +312,7 @@ def concept_purity_matrix(
 
     predictor_train_kwags = predictor_train_kwags or {
         'epochs': 25,
-        'batch_size': min(16, n_samples),
+        'batch_size': min(512, n_samples),
         'verbose': 0,
     }
 
