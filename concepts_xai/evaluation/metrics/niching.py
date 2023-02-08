@@ -116,56 +116,126 @@ def niche_impurity(c_pred, y_true, predictor_model, niches):
     '''
     n_tasks = y_true.shape[1]
 
-    # compute niche completeness for each task
-    y_pred_list = []
-    for task in range(n_tasks):
-        # find niche
-        niche = np.zeros_like(c_pred)
-        niche[:, niches[:, task] > 0] = c_pred[:, niches[:, task] > 0]
+    if len(c_pred.shape) == 2:
+        # compute niche completeness for each task
+        y_pred_list = []
+        for task in range(n_tasks):
+            # find niche
+            niche = np.zeros_like(c_pred)
+            niche[:, niches[:, task] > 0] = c_pred[:, niches[:, task] > 0]
 
-        # find concepts outside the niche
-        niche_out = np.zeros_like(c_pred)
-        niche_out[:, niches[:, task] <= 0] = c_pred[:, niches[:, task] <= 0]
+            # find concepts outside the niche
+            niche_out = np.zeros_like(c_pred)
+            niche_out[:, niches[:, task] <= 0] = c_pred[:, niches[:, task] <= 0]
 
-        # compute task predictions
-        y_pred_niche = predictor_model.predict_proba(niche)
-        y_pred_niche_out = predictor_model.predict_proba(niche_out)
-        if predictor_model.__class__.__name__ == 'Sequential':
-            # get class labels from logits
-            y_pred_niche_out = y_pred_niche_out > 0
-        elif len(y_pred_niche.shape) == 1:
-            y_pred_niche_out = y_pred_niche_out[:, np.newaxis]
+            # compute task predictions
+            y_pred_niche = predictor_model.predict_proba(niche)
+            y_pred_niche_out = predictor_model.predict_proba(niche_out)
+            if predictor_model.__class__.__name__ == 'Sequential':
+                # get class labels from logits
+                y_pred_niche_out = y_pred_niche_out > 0
+            elif len(y_pred_niche.shape) == 1:
+                y_pred_niche_out = y_pred_niche_out[:, np.newaxis]
 
-        y_pred_list.append(y_pred_niche_out[:, task])
+            y_pred_list.append(y_pred_niche_out[:, task])
 
-    y_preds = np.vstack(y_pred_list).T
-    y_preds = softmax(y_preds, axis=1)
-    auc = roc_auc_score(y_true, y_preds, multi_class='ovo')
+        y_preds = np.vstack(y_pred_list).T
+        y_preds = softmax(y_preds, axis=1)
+        nis = roc_auc_score(y_true, y_preds, multi_class='ovo')
+    else:
+        n_samples, h_concepts, n_concepts = c_pred.shape
+        c_soft_test2 = c_soft_test.reshape(-1, h_concepts*n_concepts)
+        c_preds_impurity = []
+        for i in range(n_concepts):
+            c_soft_test3 = c_soft_test2.copy()
+            mask = np.repeat(niches[:, i], h_concepts)
+            c_soft_test_masked = c_soft_test3
+            c_soft_test_masked[:, mask] = 0
+            c_pred_niche = classifier.predict_proba(c_soft_test_masked)[:, i]
 
-    return {
-        'auc_impurity': auc,
-        'y_preds': y_preds,
-    }
+            c_soft_test3 = c_soft_test2.copy()
+            c_soft_test_masked = c_soft_test3
+            c_soft_test_masked[:, ~mask] = 0
+            c_pred_niche = classifier.predict_proba(c_soft_test_masked)[:, i]
+            c_preds_impurity.append(c_pred_niche)
+
+        c_preds_impurity = np.stack(c_preds_impurity).T
+        c_preds_impurity = softmax(c_preds_impurity, axis=1)
+        return roc_auc_score(
+            c_true_test.argmax(axis=1),
+            c_preds_impurity,
+            multi_class='ovo',
+        )
+    return nis
 
 
 def niche_finding(c, y, mode='mi', threshold=0.5):
-    n_concepts = c.shape[1]
-    if mode == 'corr':
-        corrm = np.corrcoef(np.hstack([c, y]).T)
-        niching_matrix = corrm[:n_concepts, n_concepts:]
-        niches = np.abs(niching_matrix) > threshold
-    elif mode == 'mi':
-        nm = []
-        for yj in y.T:
-            mi = mutual_info_classif(c, yj)
-            nm.append(mi)
-        nm = np.vstack(nm).T
-        niching_matrix = nm / np.max(nm)
+    n_concepts = c.shape[-1]
+    n_targets = y.shape[-1]
+    if len(c.shape) == 3:
+        # Multi-dimensional concept representation case!
+        n_samples, h_concepts, n_concepts = c.shape
+        niching_matrix = np.zeros((n_concepts, n_targets))
+        for j in range(n_targets):
+            for i in range(n_concepts):
+                corrm = np.corrcoef(np.hstack([c[:, :, i], y[:, j].reshape(-1, 1)]).T)
+                nm = corrm[:h_concepts, h_concepts:]
+                niching_matrix[i, j] = nm.max()
         niches = niching_matrix > threshold
     else:
-        return None, None, None
+        if mode == 'corr':
+            corrm = np.corrcoef(np.hstack([c, y]).T)
+            niching_matrix = corrm[:n_concepts, n_concepts:]
+            niches = np.abs(niching_matrix) > threshold
+        elif mode == 'mi':
+            nm = []
+            for yj in y.T:
+                mi = mutual_info_classif(c, yj)
+                nm.append(mi)
+            nm = np.vstack(nm).T
+            niching_matrix = nm / np.max(nm)
+            niches = niching_matrix > threshold
+        else:
+            return None, None
 
-    return niches, niching_matrix
+        return niches, niching_matrix
+
+
+def niching_high_dim(c_soft_train, c_true_train, c_soft_test, c_true_test, classifier, threshold=0.5):
+    n_samples, h_concepts, n_concepts = c_soft_train.shape
+    niching_matrix = np.zeros((n_concepts, n_concepts))
+    for j in range(n_concepts):
+        for i in range(n_concepts):
+            corrm = np.corrcoef(np.hstack([c_soft_train[:, :, i], c_true_train[:, j].reshape(-1, 1)]).T)
+            nm = corrm[:h_concepts, h_concepts:]
+            niching_matrix[i, j] = nm.max()
+    
+    c_soft_train2 = c_soft_train.reshape(-1, h_concepts*n_concepts)
+    c_soft_test2 = c_soft_test.reshape(-1, h_concepts*n_concepts)
+    classifier.fit(c_soft_train2, c_true_train)
+    
+    c_preds_impurity = []
+    niches = niching_matrix > threshold
+    for i in range(n_concepts):
+        c_soft_test3 = c_soft_test2.copy()
+        mask = np.repeat(niches[:, i], h_concepts)
+        c_soft_test_masked = c_soft_test3
+        c_soft_test_masked[:, mask] = 0
+        c_pred_niche = classifier.predict_proba(c_soft_test_masked)[:, i]
+
+        c_soft_test3 = c_soft_test2.copy()
+        c_soft_test_masked = c_soft_test3
+        c_soft_test_masked[:, ~mask] = 0
+        c_pred_niche = classifier.predict_proba(c_soft_test_masked)[:, i]
+        c_preds_impurity.append(c_pred_niche)
+
+    c_preds_impurity = np.stack(c_preds_impurity).T
+    c_preds_impurity = softmax(c_preds_impurity, axis=1)
+    return roc_auc_score(
+        c_true_test.argmax(axis=1),
+        c_preds_impurity,
+        multi_class='ovo',
+    )
 
 
 def niche_impurity_score(
@@ -230,6 +300,14 @@ def niche_impurity_score(
         )
     if predictor_train_kwags is None:
         predictor_train_kwags = {}
+    if len(c_soft.shape) == 2 and c_soft.shape[1] == 1:
+        # Then get rid of degenerate dimension for simplicity
+        c_soft = np.reshape(c_soft, (-1, n_concepts))
+    if c_soft_train is not None and (
+        len(c_soft_train.shape) == 2 and c_soft_train.shape[1] == 1
+    ):
+        # Then get rid of degenerate dimension for simplicity
+        c_soft_train = np.reshape(c_soft_train, (-1, n_concepts))
 
     # And estimate the area under the curve using the trapezoid method
     auc = 0
@@ -244,7 +322,17 @@ def niche_impurity_score(
     else:
         c_true_test = c_true
         c_soft_test = c_soft
-    classifier.fit(c_soft_train, c_true_train, **predictor_train_kwags)
+    
+    if len(c_soft_train.shape) == 3:
+        # Then we are working in the multi-dimensional case!
+        # So we need to flattent the dimensions
+        classifier.fit(
+            c_soft_train.reshape(n_samples, -1),
+            c_true_train,
+            **predictor_train_kwags,
+        )
+    else:
+        classifier.fit(c_soft_train, c_true_train, **predictor_train_kwags)
 
     for beta in np.arange(0.0, 1.0, delta_beta):
         niches, _ = niche_finding(
@@ -260,11 +348,11 @@ def niche_impurity_score(
             classifier,
             niches,
         )
-        niche_impurities.append(nis_score['auc_impurity'])
+        niche_impurities.append(nis_score)
         # And update the area under the curve
         if prev_value is not None:
-            auc += (prev_value + nis_score['auc_impurity']) * (delta_beta / 2)
-        prev_value = nis_score['auc_impurity']
+            auc += (prev_value + nis_score) * (delta_beta / 2)
+        prev_value = nis_score
 
     return auc
 
