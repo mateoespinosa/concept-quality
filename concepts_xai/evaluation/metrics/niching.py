@@ -226,6 +226,7 @@ def niche_impurity_score(
             (20, 20),
             random_state=1,
             max_iter=1000,
+            batch_size=min(512, n_samples)
         )
     if predictor_train_kwags is None:
         predictor_train_kwags = {}

@@ -16,6 +16,11 @@ import sklearn
 import scipy
 from sklearn.model_selection import train_test_split
 
+def reseed(seed=87):
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    tf.random.set_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
 
 def serialize_results(results_dict, results_dir):
     for result_name, result_arr in results_dict.items():
@@ -184,6 +189,59 @@ def bold_text(x):
 def normalize_purity(purity, n_concepts):
     return purity / (n_concepts / 2)
 
+def cbm_intervention(
+    cbm_model,
+    x_train,
+    x_test,
+    y_test,
+    c_test,
+    intervention_concepts,
+):
+    # matrix mapping (concept, label) to the value we should set it
+    # to during an intervention
+    n_concepts = c_test.shape[-1]
+    intervention_values = np.zeros((n_concepts, 2))
+    if cbm_model.pass_concept_logits:
+        # Then the token value we will use for intervening
+        # will be based on the percentile of values in the
+        # training data
+        c_train_pred = cbm_model.encoder(x_train)
+        for i in range(n_concepts):
+            low_percentile, high_percentile = np.percentile(c_train_pred[:, i], [5, 95])
+            intervention_values[i, 0] = low_percentile
+            intervention_values[i, 1] = high_percentile
+    else:
+        # Else we use hard thresholds of 0 and 1 for everything as we are using
+        # real probabilities
+        intervention_values[:, 1] = 1.0
+    
+    # Now time to make our concept predictions
+    c_test_pred = cbm_model.encoder(x_test).numpy()
+    for int_concept in intervention_concepts:
+        c_test_pred[:, int_concept] = (
+            intervention_values[int_concept, 0] * (c_test[:, int_concept] == 0) +
+            intervention_values[int_concept, 1] * (c_test[:, int_concept] == 1)
+        )
+    
+    # Make the actual task predictions
+    # Extend c_test_pred so that it has its complement probability as well
+    y_test_preds = cbm_model.predict_from_concepts(c_test_pred).numpy()
+    y_test_preds = scipy.special.softmax(y_test_preds, axis=-1)
+    
+    # Time to evaluate these predictions
+    return {
+        "accuracy": sklearn.metrics.accuracy_score(
+            y_test,
+            np.argmax(y_test_preds, axis=-1),
+        ),
+        "auc": sklearn.metrics.roc_auc_score(
+            tf.keras.utils.to_categorical(y_test),
+            y_test_preds,
+            multi_class='ovo',
+        ),
+    }
+    
+    
 #############################################
 ## THE FOLLOWING FUNCTIONS HAVE BEEN ADAPTED FROM
 ## https://github.com/google-research/disentanglement_lib/blob/master/disentanglement_lib/evaluation/metrics/utils.py
