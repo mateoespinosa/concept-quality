@@ -725,7 +725,7 @@ def encoder_oracle_impurity_score(
         (score, purity_matrix, oracle_matrix) containing the computed purity
         score, purity matrix, and oracle matrix given this function's
         arguments.
-    :param Function[(np.ndarray), np.ndarray] alignment_function: an optional
+    :param Function[(np.ndarray,), np.ndarray] alignment_function: an optional
         alignment function that takes as an input an (k, n_concepts) purity
         matrix, where k >= n_concepts and its (i, j) value is the AUC of
         predicting true concept j using soft representations i, and returns a
