@@ -8,11 +8,11 @@ from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 
-from methods.CME.ItCModel import ItCModel
-from methods.CBM.CBModel import ConceptBottleneckModel
-from evaluation.metrics.accuracy import compute_accuracies
-from methods.VAE.weak_vae import GroupVAEArgmax
-from methods.VAE.betaVAE import BetaVAE
+from concepts_xai.methods.CME.ItCModel import ItCModel
+from concepts_xai.methods.CBM.CBModel import JointConceptBottleneckModel
+from concepts_xai.evaluation.metrics.accuracy import compute_accuracies
+from concepts_xai.methods.VAE.weak_vae import GroupVAEArgmax
+from concepts_xai.methods.VAE.betaVAE import BetaVAE
 
 
 '''
@@ -138,7 +138,7 @@ class SSCC_CBM(SSCClassifier):
         self.do_logged_fit = kwargs.get("logged_fit", False)
         self.n_concepts = len(n_concept_vals)
         self.n_train_predictor = kwargs.get("n_train_predictor", 2000)
-        self.concept_predictor = ConceptBottleneckModel(
+        self.concept_predictor = JointConceptBottleneckModel(
             model,
             layer_id,
             n_classes,

@@ -171,6 +171,8 @@ def niche_finding(c, y, mode='mi', threshold=0.5):
 def niche_impurity_score(
     c_soft,
     c_true,
+    c_soft_train=None,
+    c_true_train=None,
     predictor_model_fn=None,
     predictor_train_kwags=None,
     delta_beta=0.05,
@@ -218,7 +220,7 @@ def niche_impurity_score(
     (n_samples, n_concepts) = c_true.shape
     # finding niches for several values of beta
     niche_impurities = []
-
+    
     if predictor_model_fn is None:
         predictor_model_fn = lambda n_concepts: MLPClassifier(
             (20, 20),
@@ -232,11 +234,15 @@ def niche_impurity_score(
     auc = 0
     prev_value = None
     classifier = predictor_model_fn(n_concepts=n_concepts)
-    c_soft_train, c_soft_test, c_true_train, c_true_test = train_test_split(
-        c_soft,
-        c_true,
-        test_size=test_size,
-    )
+    if (c_soft_train is None) and (c_true_train is None):
+        c_soft_train, c_soft_test, c_true_train, c_true_test = train_test_split(
+            c_soft,
+            c_true,
+            test_size=test_size,
+        )
+    else:
+        c_true_test = c_true
+        c_soft_test = c_soft
     classifier.fit(c_soft_train, c_true_train, **predictor_train_kwags)
 
     for beta in np.arange(0.0, 1.0, delta_beta):
