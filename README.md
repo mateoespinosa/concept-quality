@@ -3,7 +3,7 @@
 
 <!-- [![Video presentation](https://img.shields.io/badge/-video-orange)](media/video.mp4)  -->
 
-![image](media/visual_abstract.png)
+![image](media/visual_abstract.jpeg)
 
 
 Official code for our paper "[**Towards Robust Metrics For Concept Representation Evaluation**](https://arxiv.org/abs/2301.10367)"
